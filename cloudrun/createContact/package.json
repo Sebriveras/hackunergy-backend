@@ -1,0 +1,11 @@
+{
+  "name": "create-contact",
+  "version": "1.0.0",
+  "main": "index.js",
+  "dependencies": {
+    "@google-cloud/functions-framework": "^3.0.0"
+  },
+  "scripts": {
+    "start": "functions-framework --target=createContact"
+  }
+}
