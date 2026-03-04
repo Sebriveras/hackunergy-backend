@@ -10,17 +10,26 @@ functions.http('getLeads', async (req, res) => {
     return;
   }
 
-  const { companyName, context } = req.body;
+  const { companyName, companyProfile, context } = req.body;
   const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
   const prompt = `Genera una lista de 10 contactos potenciales dentro de la empresa "${companyName}".
+
+Perfil de la empresa:
+- Sector: ${companyProfile?.industry || 'desconocido'}
+- Grupo de sector: ${companyProfile?.industryGroup || ''}
+- Ubicación: ${companyProfile?.city || ''}, ${companyProfile?.state || ''}, ${companyProfile?.country || ''}
+- Ingresos anuales: ${companyProfile?.annualRevenue || 'desconocido'}
+- Empleados: ${companyProfile?.employees || 'desconocido'}
+- Palabras clave: ${companyProfile?.keywords || ''}
+- LinkedIn: ${companyProfile?.linkedin || ''}
+- Descripción: ${companyProfile?.description || ''}
 
 Criterios de búsqueda:
 - Roles objetivo: ${context?.ScopedRoles || 'cualquier rol relevante'}
 - Nivel de seniority: ${context?.seniority || 'cualquier nivel'}
 - Departamentos: ${context?.departments || 'cualquier departamento'}
 - Solo tomadores de decisión: ${context?.decisionMaker ? 'sí' : 'no'}
-- Palabras clave: ${context?.keywords || 'ninguna'}
 - Contexto de negocio: ${context?.BussinessContext || 'ninguno'}
 
 Devuelve ÚNICAMENTE un array JSON válido con este formato exacto, sin texto adicional:
