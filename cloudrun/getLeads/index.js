@@ -11,21 +11,9 @@ functions.http('getLeads', async (req, res) => {
   }
 
   const { companyName, context } = req.body;
-  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
-  try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'user',
-            content: `Genera una lista de 10 contactos potenciales dentro de la empresa "${companyName}".
+  const prompt = `Genera una lista de 10 contactos potenciales dentro de la empresa "${companyName}".
 
 Criterios de búsqueda:
 - Roles objetivo: ${context?.ScopedRoles || 'cualquier rol relevante'}
@@ -45,22 +33,32 @@ Devuelve ÚNICAMENTE un array JSON válido con este formato exacto, sin texto ad
     "cellphone": 3001234567,
     "email": "email@empresa.com"
   }
-]`
-          }
-        ],
-        max_tokens: 2048,
-        temperature: 0.7
-      })
-    });
+]`;
+
+  try {
+    const response = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }]
+        })
+      }
+    );
 
     const data = await response.json();
-    console.log('OpenAI response:', JSON.stringify(data));
+    console.log('Gemini response:', JSON.stringify(data));
 
     if (!response.ok) {
-      throw new Error(`OpenAI API error: ${JSON.stringify(data)}`);
+      throw new Error(`Gemini API error: ${JSON.stringify(data)}`);
     }
 
-    const leads = JSON.parse(data.choices[0].message.content);
+    const text = data.candidates[0].content.parts[0].text;
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
+
+    const leads = JSON.parse(jsonMatch[0]);
     res.json({ status: 'SUCCESS', leads });
 
   } catch (error) {
