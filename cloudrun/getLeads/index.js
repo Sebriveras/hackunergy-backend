@@ -56,7 +56,10 @@ Devuelve ÚNICAMENTE un array JSON válido con este formato exacto, sin texto ad
       throw new Error(`Claude API error: ${JSON.stringify(data)}`);
     }
 
-    const leads = JSON.parse(data.content[0].text);
+    const text = data.content[0].text;
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
+    const leads = JSON.parse(jsonMatch[0]);
     res.json({ status: 'SUCCESS', leads });
 
   } catch (error) {
