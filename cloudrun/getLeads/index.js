@@ -10,49 +10,57 @@ functions.http('getLeads', async (req, res) => {
     return;
   }
 
-  const { companyName, industry, description } = req.body;
-  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  const { companyName, context } = req.body;
+  const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': ANTHROPIC_API_KEY,
-        'anthropic-version': '2023-06-01'
+        'Authorization': `Bearer ${OPENAI_API_KEY}`
       },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 2048,
+        model: 'gpt-4o-mini',
         messages: [
           {
             role: 'user',
-            content: `Genera una lista de 10 contactos potenciales (leads) para una empresa llamada "${companyName}" del sector "${industry}". ${description ? `Contexto adicional: ${description}` : ''}
+            content: `Genera una lista de 10 contactos potenciales dentro de la empresa "${companyName}".
+
+Criterios de búsqueda:
+- Roles objetivo: ${context?.ScopedRoles || 'cualquier rol relevante'}
+- Nivel de seniority: ${context?.seniority || 'cualquier nivel'}
+- Departamentos: ${context?.departments || 'cualquier departamento'}
+- Solo tomadores de decisión: ${context?.decisionMaker ? 'sí' : 'no'}
+- Palabras clave: ${context?.keywords || 'ninguna'}
+- Contexto de negocio: ${context?.BussinessContext || 'ninguno'}
 
 Devuelve ÚNICAMENTE un array JSON válido con este formato exacto, sin texto adicional:
 [
   {
     "name": "Nombre",
     "lastName": "Apellido",
-    "company": "Empresa donde trabaja",
+    "company": "${companyName}",
     "rol": "Cargo",
     "cellphone": 3001234567,
     "email": "email@empresa.com"
   }
 ]`
           }
-        ]
+        ],
+        max_tokens: 2048,
+        temperature: 0.7
       })
     });
 
     const data = await response.json();
-    console.log('Claude response:', JSON.stringify(data));
+    console.log('OpenAI response:', JSON.stringify(data));
 
     if (!response.ok) {
-      throw new Error(`Claude API error: ${JSON.stringify(data)}`);
+      throw new Error(`OpenAI API error: ${JSON.stringify(data)}`);
     }
 
-    const leads = JSON.parse(data.content[0].text);
+    const leads = JSON.parse(data.choices[0].message.content);
     res.json({ status: 'SUCCESS', leads });
 
   } catch (error) {
