@@ -11,7 +11,7 @@ functions.http('getLeads', async (req, res) => {
   }
 
   const { companyName, context } = req.body;
-  const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
+  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
 
   const prompt = `Genera una lista de 10 contactos potenciales dentro de la empresa "${companyName}".
 
@@ -36,29 +36,27 @@ Devuelve ÚNICAMENTE un array JSON válido con este formato exacto, sin texto ad
 ]`;
 
   try {
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }]
-        })
-      }
-    );
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': ANTHROPIC_API_KEY,
+        'anthropic-version': '2023-06-01'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 2048,
+        messages: [{ role: 'user', content: prompt }]
+      })
+    });
 
     const data = await response.json();
-    console.log('Gemini response:', JSON.stringify(data));
 
     if (!response.ok) {
-      throw new Error(`Gemini API error: ${JSON.stringify(data)}`);
+      throw new Error(`Claude API error: ${JSON.stringify(data)}`);
     }
 
-    const text = data.candidates[0].content.parts[0].text;
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta');
-
-    const leads = JSON.parse(jsonMatch[0]);
+    const leads = JSON.parse(data.content[0].text);
     res.json({ status: 'SUCCESS', leads });
 
   } catch (error) {
