@@ -10,27 +10,49 @@ functions.http('getLeads', async (req, res) => {
     return;
   }
 
-  const { companyName, companyProfile, context } = req.body;
+  const { companyId } = req.body;
   const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  const TOKEN = process.env.PRIVATE_APP_ACCESS_TOKEN;
 
-  const prompt = `Genera una lista de 10 contactos potenciales dentro de la empresa "${companyName}".
+  try {
+    // Fetch company properties from HubSpot API
+    const companyRes = await fetch(
+      `https://api.hubapi.com/crm/v3/objects/companies/${companyId}?properties=name,industry,industrygroup,city,country,state,annualrevenue,numberofemployees,hs_keywords,linkedin_company_page,website,description,scoped_roles,seniority_level,target_departments,business_context,decision_maker_only`,
+      {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${TOKEN}`,
+          'Content-Type': 'application/json'
+        }
+      }
+    );
+
+    const company = await companyRes.json();
+    if (!companyRes.ok) {
+      throw new Error(`HubSpot API error: ${JSON.stringify(company)}`);
+    }
+
+    const props = company.properties;
+    const companyName = props?.name || 'desconocido';
+
+    const prompt = `Genera una lista de 10 contactos potenciales dentro de la empresa "${companyName}".
 
 Perfil de la empresa:
-- Sector: ${companyProfile?.industry || 'desconocido'}
-- Grupo de sector: ${companyProfile?.industryGroup || ''}
-- Ubicación: ${companyProfile?.city || ''}, ${companyProfile?.state || ''}, ${companyProfile?.country || ''}
-- Ingresos anuales: ${companyProfile?.annualRevenue || 'desconocido'}
-- Empleados: ${companyProfile?.employees || 'desconocido'}
-- Palabras clave: ${companyProfile?.keywords || ''}
-- LinkedIn: ${companyProfile?.linkedin || ''}
-- Descripción: ${companyProfile?.description || ''}
+- Sector: ${props?.industry || 'desconocido'}
+- Grupo de sector: ${props?.industrygroup || ''}
+- Ubicación: ${props?.city || ''}, ${props?.state || ''}, ${props?.country || ''}
+- Ingresos anuales: ${props?.annualrevenue || 'desconocido'}
+- Empleados: ${props?.numberofemployees || 'desconocido'}
+- Palabras clave: ${props?.hs_keywords || ''}
+- LinkedIn: ${props?.linkedin_company_page || ''}
+- Descripción: ${props?.description || ''}
 
 Criterios de búsqueda:
-- Roles objetivo: ${context?.ScopedRoles || 'cualquier rol relevante'}
-- Nivel de seniority: ${context?.seniority || 'cualquier nivel'}
-- Departamentos: ${context?.departments || 'cualquier departamento'}
-- Solo tomadores de decisión: ${context?.decisionMaker ? 'sí' : 'no'}
-- Contexto de negocio: ${context?.BussinessContext || 'ninguno'}
+- Roles objetivo: ${props?.scoped_roles || 'cualquier rol relevante'}
+- Nivel de seniority: ${props?.seniority_level || 'cualquier nivel'}
+- Departamentos: ${props?.target_departments || 'cualquier departamento'}
+- Solo tomadores de decisión: ${props?.decision_maker_only ? 'sí' : 'no'}
+- Contexto de negocio: ${props?.business_context || 'ninguno'}
 
 Devuelve ÚNICAMENTE un array JSON válido con este formato exacto, sin texto adicional:
 [
@@ -44,7 +66,6 @@ Devuelve ÚNICAMENTE un array JSON válido con este formato exacto, sin texto ad
   }
 ]`;
 
-  try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
