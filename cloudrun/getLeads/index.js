@@ -19,18 +19,30 @@ async function getCompanyFromHubSpot(companyId, token) {
   return data.properties;
 }
 
-async function revealPerson(id, apiKey) {
-  const res = await fetch(
-    `https://api.apollo.io/api/v1/people/${id}?reveal_personal_emails=true`,
-    { headers: { 'X-Api-Key': apiKey } }
-  );
+async function getLastName(id, apiKey) {
+  const res = await fetch(`https://api.apollo.io/api/v1/people/${id}`, {
+    headers: { 'X-Api-Key': apiKey }
+  });
   const data = await safeJson(res);
-  if (!res.ok) return {};
-  const p = data.person || {};
-  return {
-    lastName: p.last_name || '',
-    email: p.email && !p.email.includes('not_unlocked') ? p.email : ''
-  };
+  if (!res.ok) return '';
+  return data.person?.last_name || '';
+}
+
+async function getEmail(firstName, lastName, orgName, apiKey) {
+  const res = await fetch('https://api.apollo.io/api/v1/people/match', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
+    body: JSON.stringify({
+      first_name: firstName,
+      last_name: lastName,
+      organization_name: orgName,
+      reveal_personal_emails: true
+    })
+  });
+  const data = await safeJson(res);
+  if (!res.ok) return '';
+  const email = data.person?.email || '';
+  return email.includes('not_unlocked') ? '' : email;
 }
 
 async function getLeadsFromApollo(props) {
@@ -42,7 +54,7 @@ async function getLeadsFromApollo(props) {
   const body = { q_organization_name: props.name, per_page: 10, page: 1 };
   if (domain) body.organization_domains = [domain];
 
-  const res = await fetch('https://api.apollo.io/api/v1/mixed_people/api_search', {
+  const searchRes = await fetch('https://api.apollo.io/api/v1/mixed_people/api_search', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -51,23 +63,33 @@ async function getLeadsFromApollo(props) {
     },
     body: JSON.stringify(body)
   });
-  const data = await safeJson(res);
-  if (!res.ok) throw new Error(`Apollo search error: ${JSON.stringify(data)}`);
+  const searchData = await safeJson(searchRes);
+  if (!searchRes.ok) throw new Error(`Apollo search error: ${JSON.stringify(searchData)}`);
 
-  const people = data.people || [];
+  const people = searchData.people || [];
   if (people.length === 0) return [];
 
-  const revealed = await Promise.all(
-    people.map(p => p.id ? revealPerson(p.id, APOLLO_API_KEY) : Promise.resolve({}))
+  // Step 1: get last names in parallel
+  const lastNames = await Promise.all(
+    people.map(p => p.id ? getLastName(p.id, APOLLO_API_KEY) : Promise.resolve(''))
+  );
+
+  // Step 2: get emails using first + last + org in parallel
+  const emails = await Promise.all(
+    people.map((p, i) =>
+      lastNames[i]
+        ? getEmail(p.first_name, lastNames[i], p.organization?.name || props.name, APOLLO_API_KEY)
+        : Promise.resolve('')
+    )
   );
 
   return people.map((p, i) => ({
     name: p.first_name || '',
-    lastName: revealed[i].lastName || '',
+    lastName: lastNames[i] || '',
     company: p.organization?.name || props.name,
     rol: p.title || '',
     cellphone: '',
-    email: revealed[i].email || ''
+    email: emails[i] || ''
   }));
 }
 
