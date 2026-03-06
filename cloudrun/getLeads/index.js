@@ -19,22 +19,26 @@ async function getCompanyFromHubSpot(companyId, token) {
   return data.properties;
 }
 
-async function revealPerson(id, apiKey) {
-  const res = await fetch(
-    `https://api.apollo.io/api/v1/people/${id}?reveal_personal_emails=true&reveal_phone_number=true`,
-    {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Api-Key': apiKey
-      }
-    }
-  );
+async function matchPerson(firstName, lastName, organizationName, apiKey) {
+  const res = await fetch('https://api.apollo.io/api/v1/people/match', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Api-Key': apiKey
+    },
+    body: JSON.stringify({
+      first_name: firstName,
+      last_name: lastName,
+      organization_name: organizationName,
+      reveal_personal_emails: true,
+      reveal_phone_number: true
+    })
+  });
   const data = await safeJson(res);
   if (!res.ok) return {};
   const p = data.person || {};
   return {
-    lastName: p.last_name || '',
+    lastName: p.last_name || lastName,
     email: p.email || '',
     cellphone: p.phone_numbers?.[0]?.sanitized_number || ''
   };
@@ -64,17 +68,19 @@ async function getLeadsFromApollo(props) {
   const people = data.people || [];
   if (people.length === 0) return [];
 
-  const revealed = await Promise.all(
-    people.map(p => p.id ? revealPerson(p.id, APOLLO_API_KEY) : Promise.resolve({}))
+  const matched = await Promise.all(
+    people.map(p =>
+      matchPerson(p.first_name, p.last_name, p.organization?.name || props.name, APOLLO_API_KEY)
+    )
   );
 
   return people.map((p, i) => ({
     name: p.first_name || '',
-    lastName: revealed[i].lastName || p.last_name || '',
+    lastName: matched[i].lastName || p.last_name || '',
     company: p.organization?.name || props.name,
     rol: p.title || '',
-    cellphone: revealed[i].cellphone || p.phone_numbers?.[0]?.sanitized_number || '',
-    email: revealed[i].email || p.email || ''
+    cellphone: matched[i].cellphone || '',
+    email: matched[i].email || ''
   }));
 }
 
