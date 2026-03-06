@@ -22,16 +22,12 @@ async function getCompanyFromHubSpot(companyId, token) {
 async function matchPerson(firstName, lastName, organizationName, apiKey) {
   const res = await fetch('https://api.apollo.io/api/v1/people/match', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Api-Key': apiKey
-    },
+    headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
     body: JSON.stringify({
       first_name: firstName,
       last_name: lastName,
       organization_name: organizationName,
-      reveal_personal_emails: true,
-      reveal_phone_number: true
+      reveal_personal_emails: true
     })
   });
   const data = await safeJson(res);
@@ -39,8 +35,7 @@ async function matchPerson(firstName, lastName, organizationName, apiKey) {
   const p = data.person || {};
   return {
     lastName: p.last_name || lastName,
-    email: p.email || '',
-    cellphone: p.phone_numbers?.[0]?.sanitized_number || ''
+    email: p.email || ''
   };
 }
 
@@ -79,7 +74,7 @@ async function getLeadsFromApollo(props) {
     lastName: matched[i].lastName || p.last_name || '',
     company: p.organization?.name || props.name,
     rol: p.title || '',
-    cellphone: matched[i].cellphone || '',
+    cellphone: '',
     email: matched[i].email || ''
   }));
 }
