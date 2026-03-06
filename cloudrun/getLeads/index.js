@@ -19,21 +19,17 @@ async function getCompanyFromHubSpot(companyId, token) {
   return data.properties;
 }
 
-async function matchByLinkedin(linkedinUrl, apiKey) {
-  const res = await fetch('https://api.apollo.io/api/v1/people/match', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-    body: JSON.stringify({
-      linkedin_url: linkedinUrl,
-      reveal_personal_emails: true
-    })
-  });
+async function revealPerson(id, apiKey) {
+  const res = await fetch(
+    `https://api.apollo.io/api/v1/people/${id}?reveal_personal_emails=true`,
+    { headers: { 'X-Api-Key': apiKey } }
+  );
   const data = await safeJson(res);
   if (!res.ok) return {};
   const p = data.person || {};
   return {
     lastName: p.last_name || '',
-    email: p.email || ''
+    email: p.email && !p.email.includes('not_unlocked') ? p.email : ''
   };
 }
 
@@ -61,21 +57,17 @@ async function getLeadsFromApollo(props) {
   const people = data.people || [];
   if (people.length === 0) return [];
 
-  const matched = await Promise.all(
-    people.map(p =>
-      p.linkedin_url
-        ? matchByLinkedin(p.linkedin_url, APOLLO_API_KEY)
-        : Promise.resolve({})
-    )
+  const revealed = await Promise.all(
+    people.map(p => p.id ? revealPerson(p.id, APOLLO_API_KEY) : Promise.resolve({}))
   );
 
   return people.map((p, i) => ({
     name: p.first_name || '',
-    lastName: matched[i].lastName || '',
+    lastName: revealed[i].lastName || '',
     company: p.organization?.name || props.name,
     rol: p.title || '',
     cellphone: '',
-    email: matched[i].email || ''
+    email: revealed[i].email || ''
   }));
 }
 
