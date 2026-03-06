@@ -101,12 +101,12 @@ async function getLeadsFromLusha(props) {
     ? props.website.replace(/https?:\/\//, '').split('/')[0]
     : undefined;
 
-  const requestBody = {
-    company: { name: props.name },
-    limit: 10,
-    page: 1
-  };
-  if (domain) requestBody.company.website = domain;
+  const requestBody = { limit: 10, page: 1 };
+  if (domain) {
+    requestBody.company = { website: domain };
+  } else {
+    requestBody.company = { name: props.name };
+  }
   if (props.seniority_level) {
     requestBody.seniority = props.seniority_level.split(',').map(s => s.trim().toLowerCase());
   }
@@ -114,7 +114,7 @@ async function getLeadsFromLusha(props) {
     requestBody.departments = props.target_departments.split(',').map(d => d.trim().toLowerCase());
   }
 
-  const res = await fetch('https://api.lusha.com/person', {
+  const res = await fetch('https://api.lusha.com/prospecting/v1/search', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'api_key': LUSHA_API_KEY },
     body: JSON.stringify(requestBody)
@@ -122,13 +122,13 @@ async function getLeadsFromLusha(props) {
   const data = await safeJson(res);
   if (!res.ok) throw new Error(`Lusha error: ${JSON.stringify(data)}`);
 
-  return (data.data || []).map(p => ({
-    name: p.firstName || '',
-    lastName: p.lastName || '',
+  return (data.data?.contacts || data.contacts || data.data || []).map(p => ({
+    name: p.firstName || p.first_name || '',
+    lastName: p.lastName || p.last_name || '',
     company: p.company?.name || props.name,
-    rol: p.jobTitle || '',
+    rol: p.jobTitle || p.job_title || p.title || '',
     cellphone: p.mobilePhones?.[0]?.number || p.phones?.[0]?.number || '',
-    email: p.emails?.[0]?.email || ''
+    email: p.emails?.[0]?.email || p.email || ''
   }));
 }
 
