@@ -19,22 +19,24 @@ async function getCompanyFromHubSpot(companyId, token) {
   return data.properties;
 }
 
-async function matchPerson(firstName, lastName, organizationName, apiKey) {
+async function matchPerson(firstName, organizationName, title, apiKey) {
+  const body = {
+    first_name: firstName,
+    organization_name: organizationName,
+    reveal_personal_emails: true
+  };
+  if (title) body.title = title;
+
   const res = await fetch('https://api.apollo.io/api/v1/people/match', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-    body: JSON.stringify({
-      first_name: firstName,
-      last_name: lastName,
-      organization_name: organizationName,
-      reveal_personal_emails: true
-    })
+    body: JSON.stringify(body)
   });
   const data = await safeJson(res);
   if (!res.ok) return {};
   const p = data.person || {};
   return {
-    lastName: p.last_name || lastName,
+    lastName: p.last_name || '',
     email: p.email || ''
   };
 }
@@ -65,13 +67,13 @@ async function getLeadsFromApollo(props) {
 
   const matched = await Promise.all(
     people.map(p =>
-      matchPerson(p.first_name, p.last_name, p.organization?.name || props.name, APOLLO_API_KEY)
+      matchPerson(p.first_name, p.organization?.name || props.name, p.title, APOLLO_API_KEY)
     )
   );
 
   return people.map((p, i) => ({
     name: p.first_name || '',
-    lastName: matched[i].lastName || p.last_name || '',
+    lastName: matched[i].lastName || '',
     company: p.organization?.name || props.name,
     rol: p.title || '',
     cellphone: '',
