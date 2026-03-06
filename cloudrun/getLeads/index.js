@@ -19,9 +19,27 @@ async function getCompanyFromHubSpot(companyId, token) {
   return data.properties;
 }
 
-// ── Apollo ──────────────────────────────────────────────────────────────────
+// ── Apollo helpers ───────────────────────────────────────────────────────────
 
-async function getLastName(id, apiKey) {
+async function searchApollo(companyName, domain, apiKey) {
+  const body = { q_organization_name: companyName, per_page: 10, page: 1 };
+  if (domain) body.organization_domains = [domain];
+
+  const res = await fetch('https://api.apollo.io/api/v1/mixed_people/api_search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache',
+      'X-Api-Key': apiKey
+    },
+    body: JSON.stringify(body)
+  });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(`Apollo search error: ${JSON.stringify(data)}`);
+  return data.people || [];
+}
+
+async function getLastNameApollo(id, apiKey) {
   const res = await fetch(`https://api.apollo.io/api/v1/people/${id}`, {
     headers: { 'X-Api-Key': apiKey }
   });
@@ -30,7 +48,7 @@ async function getLastName(id, apiKey) {
   return data.person?.last_name || '';
 }
 
-async function getEmail(firstName, lastName, orgName, apiKey) {
+async function getEmailApollo(firstName, lastName, orgName, apiKey) {
   const res = await fetch('https://api.apollo.io/api/v1/people/match', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
@@ -47,38 +65,39 @@ async function getEmail(firstName, lastName, orgName, apiKey) {
   return email.includes('not_unlocked') ? '' : email;
 }
 
+// ── Lusha helpers ─────────────────────────────────────────────────────────────
+
+async function enrichWithLusha(firstName, lastName, companyName, apiKey) {
+  const res = await fetch(
+    `https://api.lusha.com/v2/person?firstName=${encodeURIComponent(firstName)}&lastName=${encodeURIComponent(lastName)}&companyName=${encodeURIComponent(companyName)}`,
+    { headers: { 'api_key': apiKey } }
+  );
+  const data = await safeJson(res);
+  if (!res.ok) return {};
+  const contact = data.contact?.data || {};
+  return {
+    email: contact.emails?.[0]?.email || '',
+    cellphone: contact.phoneNumbers?.[0]?.number || contact.mobilePhones?.[0]?.number || ''
+  };
+}
+
+// ── Source handlers ───────────────────────────────────────────────────────────
+
 async function getLeadsFromApollo(props) {
   const APOLLO_API_KEY = process.env.APOLLO_API_KEY;
-  const domain = props.website
-    ? props.website.replace(/https?:\/\//, '').split('/')[0]
-    : undefined;
+  const domain = props.website?.replace(/https?:\/\//, '').split('/')[0];
 
-  const body = { q_organization_name: props.name, per_page: 10, page: 1 };
-  if (domain) body.organization_domains = [domain];
-
-  const searchRes = await fetch('https://api.apollo.io/api/v1/mixed_people/api_search', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache',
-      'X-Api-Key': APOLLO_API_KEY
-    },
-    body: JSON.stringify(body)
-  });
-  const searchData = await safeJson(searchRes);
-  if (!searchRes.ok) throw new Error(`Apollo search error: ${JSON.stringify(searchData)}`);
-
-  const people = searchData.people || [];
+  const people = await searchApollo(props.name, domain, APOLLO_API_KEY);
   if (people.length === 0) return [];
 
   const lastNames = await Promise.all(
-    people.map(p => p.id ? getLastName(p.id, APOLLO_API_KEY) : Promise.resolve(''))
+    people.map(p => p.id ? getLastNameApollo(p.id, APOLLO_API_KEY) : Promise.resolve(''))
   );
 
   const emails = await Promise.all(
     people.map((p, i) =>
       lastNames[i]
-        ? getEmail(p.first_name, lastNames[i], p.organization?.name || props.name, APOLLO_API_KEY)
+        ? getEmailApollo(p.first_name, lastNames[i], p.organization?.name || props.name, APOLLO_API_KEY)
         : Promise.resolve('')
     )
   );
@@ -93,42 +112,36 @@ async function getLeadsFromApollo(props) {
   }));
 }
 
-// ── Lusha ───────────────────────────────────────────────────────────────────
-
 async function getLeadsFromLusha(props) {
+  const APOLLO_API_KEY = process.env.APOLLO_API_KEY;
   const LUSHA_API_KEY = process.env.LUSHA_API_KEY;
-  const domain = props.website
-    ? props.website.replace(/https?:\/\//, '').split('/')[0]
-    : undefined;
+  const domain = props.website?.replace(/https?:\/\//, '').split('/')[0];
 
-  const requestBody = { limit: 10, page: 1 };
-  if (domain) {
-    requestBody.company = { website: domain };
-  } else {
-    requestBody.company = { name: props.name };
-  }
-  if (props.seniority_level) {
-    requestBody.seniority = props.seniority_level.split(',').map(s => s.trim().toLowerCase());
-  }
-  if (props.target_departments) {
-    requestBody.departments = props.target_departments.split(',').map(d => d.trim().toLowerCase());
-  }
+  // Discover people via Apollo
+  const people = await searchApollo(props.name, domain, APOLLO_API_KEY);
+  if (people.length === 0) return [];
 
-  const res = await fetch('https://api.lusha.com/prospecting/v1/search', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'api_key': LUSHA_API_KEY },
-    body: JSON.stringify(requestBody)
-  });
-  const data = await safeJson(res);
-  if (!res.ok) throw new Error(`Lusha error: ${JSON.stringify(data)}`);
+  // Get last names via Apollo
+  const lastNames = await Promise.all(
+    people.map(p => p.id ? getLastNameApollo(p.id, APOLLO_API_KEY) : Promise.resolve(''))
+  );
 
-  return (data.data?.contacts || data.contacts || data.data || []).map(p => ({
-    name: p.firstName || p.first_name || '',
-    lastName: p.lastName || p.last_name || '',
-    company: p.company?.name || props.name,
-    rol: p.jobTitle || p.job_title || p.title || '',
-    cellphone: p.mobilePhones?.[0]?.number || p.phones?.[0]?.number || '',
-    email: p.emails?.[0]?.email || p.email || ''
+  // Enrich email + phone via Lusha
+  const lusha = await Promise.all(
+    people.map((p, i) =>
+      lastNames[i]
+        ? enrichWithLusha(p.first_name, lastNames[i], p.organization?.name || props.name, LUSHA_API_KEY)
+        : Promise.resolve({})
+    )
+  );
+
+  return people.map((p, i) => ({
+    name: p.first_name || '',
+    lastName: lastNames[i] || '',
+    company: p.organization?.name || props.name,
+    rol: p.title || '',
+    cellphone: lusha[i].cellphone || '',
+    email: lusha[i].email || ''
   }));
 }
 
