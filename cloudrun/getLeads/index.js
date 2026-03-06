@@ -1,11 +1,20 @@
 const functions = require('@google-cloud/functions-framework');
 
+async function safeJson(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error(`Respuesta no-JSON (${res.status}): ${text.substring(0, 200)}`);
+  }
+}
+
 async function getCompanyFromHubSpot(companyId, token) {
   const res = await fetch(
     `https://api.hubapi.com/crm/v3/objects/companies/${companyId}?properties=name,industry,industrygroup,city,country,state,annualrevenue,numberofemployees,hs_keywords,linkedin_company_page,website,description,scoped_roles,seniority_level,target_departments,business_context,decision_maker_only`,
     { headers: { 'Authorization': `Bearer ${token}` } }
   );
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(`HubSpot error: ${JSON.stringify(data)}`);
   return data.properties;
 }
@@ -34,11 +43,10 @@ async function getLeadsFromApollo(props) {
     },
     body: JSON.stringify(body)
   });
-  const data = await res.json();
+  const data = await safeJson(res);
   if (!res.ok) throw new Error(`Apollo error: ${JSON.stringify(data)}`);
 
-  const people = data.people || [];
-  return people.map(p => ({
+  const people = (data.people || []).map(p => ({
     name: p.first_name || '',
     lastName: p.last_name || '',
     company: p.organization?.name || props.name,
@@ -46,6 +54,8 @@ async function getLeadsFromApollo(props) {
     cellphone: p.phone_numbers?.[0]?.sanitized_number || '',
     email: p.email || ''
   }));
+
+  return people;
 }
 
 async function getLeadsFromClaude(props, source) {
@@ -83,7 +93,7 @@ Devuelve ÚNICAMENTE un array JSON válido, sin texto adicional:
     })
   });
 
-  const data = await response.json();
+  const data = await safeJson(response);
   if (!response.ok) throw new Error(`Claude error: ${JSON.stringify(data)}`);
 
   const text = data.content[0].text;
@@ -114,10 +124,8 @@ functions.http('getLeads', async (req, res) => {
 
   try {
     const props = await getCompanyFromHubSpot(companyId, TOKEN);
-
     const handler = sourceHandlers[source] || ((p) => getLeadsFromClaude(p, source));
     const leads = await handler(props);
-
     res.json({ status: 'SUCCESS', leads });
   } catch (error) {
     console.error('error:', error.message);
