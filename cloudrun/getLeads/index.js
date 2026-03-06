@@ -19,6 +19,8 @@ async function getCompanyFromHubSpot(companyId, token) {
   return data.properties;
 }
 
+// ── Apollo ──────────────────────────────────────────────────────────────────
+
 async function getLastName(id, apiKey) {
   const res = await fetch(`https://api.apollo.io/api/v1/people/${id}`, {
     headers: { 'X-Api-Key': apiKey }
@@ -69,12 +71,10 @@ async function getLeadsFromApollo(props) {
   const people = searchData.people || [];
   if (people.length === 0) return [];
 
-  // Step 1: get last names in parallel
   const lastNames = await Promise.all(
     people.map(p => p.id ? getLastName(p.id, APOLLO_API_KEY) : Promise.resolve(''))
   );
 
-  // Step 2: get emails using first + last + org in parallel
   const emails = await Promise.all(
     people.map((p, i) =>
       lastNames[i]
@@ -93,55 +93,50 @@ async function getLeadsFromApollo(props) {
   }));
 }
 
-async function getLeadsFromClaude(props, source) {
-  const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-  const companyName = props.name || 'desconocido';
+// ── Lusha ───────────────────────────────────────────────────────────────────
 
-  const prompt = `Genera una lista de 10 contactos potenciales dentro de la empresa "${companyName}" simulando una búsqueda en la base de datos ${source}.
+async function getLeadsFromLusha(props) {
+  const LUSHA_API_KEY = process.env.LUSHA_API_KEY;
+  const domain = props.website
+    ? props.website.replace(/https?:\/\//, '').split('/')[0]
+    : undefined;
 
-Perfil de la empresa:
-- Sector: ${props.industry || 'desconocido'}
-- Ubicación: ${props.city || ''}, ${props.state || ''}, ${props.country || ''}
-- Empleados: ${props.numberofemployees || 'desconocido'}
-- Descripción: ${props.description || ''}
+  const requestBody = {
+    company: { name: props.name },
+    limit: 10,
+    page: 1
+  };
+  if (domain) requestBody.company.website = domain;
+  if (props.seniority_level) {
+    requestBody.seniority = props.seniority_level.split(',').map(s => s.trim().toLowerCase());
+  }
+  if (props.target_departments) {
+    requestBody.departments = props.target_departments.split(',').map(d => d.trim().toLowerCase());
+  }
 
-Criterios:
-- Roles objetivo: ${props.scoped_roles || 'cualquier rol relevante'}
-- Nivel de seniority: ${props.seniority_level || 'cualquier nivel'}
-- Departamentos: ${props.target_departments || 'cualquier departamento'}
-- Contexto: ${props.business_context || 'ninguno'}
-
-Devuelve ÚNICAMENTE un array JSON válido, sin texto adicional:
-[{ "name": "Nombre", "lastName": "Apellido", "company": "${companyName}", "rol": "Cargo", "cellphone": 3001234567, "email": "email@empresa.com" }]`;
-
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const res = await fetch('https://api.lusha.com/person', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': ANTHROPIC_API_KEY,
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-haiku-4-5-20251001',
-      max_tokens: 2048,
-      messages: [{ role: 'user', content: prompt }]
-    })
+    headers: { 'Content-Type': 'application/json', 'api_key': LUSHA_API_KEY },
+    body: JSON.stringify(requestBody)
   });
+  const data = await safeJson(res);
+  if (!res.ok) throw new Error(`Lusha error: ${JSON.stringify(data)}`);
 
-  const data = await safeJson(response);
-  if (!response.ok) throw new Error(`Claude error: ${JSON.stringify(data)}`);
-
-  const text = data.content[0].text;
-  const jsonMatch = text.match(/\[[\s\S]*\]/);
-  if (!jsonMatch) throw new Error('No se encontró JSON en la respuesta de Claude');
-  return JSON.parse(jsonMatch[0]);
+  return (data.data || []).map(p => ({
+    name: p.firstName || '',
+    lastName: p.lastName || '',
+    company: p.company?.name || props.name,
+    rol: p.jobTitle || '',
+    cellphone: p.mobilePhones?.[0]?.number || p.phones?.[0]?.number || '',
+    email: p.emails?.[0]?.email || ''
+  }));
 }
+
+// ── Routing ──────────────────────────────────────────────────────────────────
 
 const sourceHandlers = {
   'Apollo': getLeadsFromApollo,
-  'Clay': (props) => getLeadsFromClaude(props, 'Clay'),
-  'Instantly': (props) => getLeadsFromClaude(props, 'Instantly'),
-  'Snovio': (props) => getLeadsFromClaude(props, 'Snovio'),
+  'Lusha': getLeadsFromLusha,
 };
 
 functions.http('getLeads', async (req, res) => {
@@ -159,7 +154,8 @@ functions.http('getLeads', async (req, res) => {
 
   try {
     const props = await getCompanyFromHubSpot(companyId, TOKEN);
-    const handler = sourceHandlers[source] || ((p) => getLeadsFromClaude(p, source));
+    const handler = sourceHandlers[source];
+    if (!handler) throw new Error(`Fuente no soportada: ${source}`);
     const leads = await handler(props);
     res.json({ status: 'SUCCESS', leads });
   } catch (error) {
