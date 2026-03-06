@@ -17,7 +17,6 @@ async function getLeadsFromApollo(props) {
     : undefined;
 
   const body = {
-    api_key: APOLLO_API_KEY,
     q_organization_name: props.name,
     per_page: 10,
     page: 1
@@ -26,7 +25,11 @@ async function getLeadsFromApollo(props) {
 
   const res = await fetch('https://api.apollo.io/api/v1/mixed_people/search', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' },
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-cache',
+      'X-Api-Key': APOLLO_API_KEY
+    },
     body: JSON.stringify(body)
   });
   const data = await res.json();
