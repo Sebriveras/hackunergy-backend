@@ -19,36 +19,25 @@ async function getCompanyFromHubSpot(companyId, token) {
   return data.properties;
 }
 
-async function enrichPeople(ids, apiKey) {
-  const res = await fetch('https://api.apollo.io/api/v1/people/bulk_match', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Cache-Control': 'no-cache',
-      'X-Api-Key': apiKey
-    },
-    body: JSON.stringify({
-      details: ids.map(id => ({ id })),
-      reveal_personal_emails: true,
-      reveal_phone_number: true
-    })
-  });
-  const data = await safeJson(res);
-  if (!res.ok) {
-    console.error('Enrich error:', JSON.stringify(data));
-    return {};
-  }
-  const enriched = {};
-  for (const match of (data.matches || [])) {
-    if (match.id) {
-      enriched[match.id] = {
-        email: match.email || '',
-        lastName: match.last_name || '',
-        cellphone: match.phone_numbers?.[0]?.sanitized_number || ''
-      };
+async function revealPerson(id, apiKey) {
+  const res = await fetch(
+    `https://api.apollo.io/api/v1/people/${id}?reveal_personal_emails=true&reveal_phone_number=true`,
+    {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': apiKey
+      }
     }
-  }
-  return enriched;
+  );
+  const data = await safeJson(res);
+  if (!res.ok) return {};
+  const p = data.person || {};
+  return {
+    lastName: p.last_name || '',
+    email: p.email || '',
+    cellphone: p.phone_numbers?.[0]?.sanitized_number || ''
+  };
 }
 
 async function getLeadsFromApollo(props) {
@@ -57,11 +46,7 @@ async function getLeadsFromApollo(props) {
     ? props.website.replace(/https?:\/\//, '').split('/')[0]
     : undefined;
 
-  const body = {
-    q_organization_name: props.name,
-    per_page: 10,
-    page: 1
-  };
+  const body = { q_organization_name: props.name, per_page: 10, page: 1 };
   if (domain) body.organization_domains = [domain];
 
   const res = await fetch('https://api.apollo.io/api/v1/mixed_people/api_search', {
@@ -79,20 +64,18 @@ async function getLeadsFromApollo(props) {
   const people = data.people || [];
   if (people.length === 0) return [];
 
-  const ids = people.map(p => p.id).filter(Boolean);
-  const enriched = ids.length > 0 ? await enrichPeople(ids, APOLLO_API_KEY) : {};
+  const revealed = await Promise.all(
+    people.map(p => p.id ? revealPerson(p.id, APOLLO_API_KEY) : Promise.resolve({}))
+  );
 
-  return people.map(p => {
-    const extra = enriched[p.id] || {};
-    return {
-      name: p.first_name || '',
-      lastName: extra.lastName || p.last_name || '',
-      company: p.organization?.name || props.name,
-      rol: p.title || '',
-      cellphone: extra.cellphone || p.phone_numbers?.[0]?.sanitized_number || '',
-      email: extra.email || p.email || ''
-    };
-  });
+  return people.map((p, i) => ({
+    name: p.first_name || '',
+    lastName: revealed[i].lastName || p.last_name || '',
+    company: p.organization?.name || props.name,
+    rol: p.title || '',
+    cellphone: revealed[i].cellphone || p.phone_numbers?.[0]?.sanitized_number || '',
+    email: revealed[i].email || p.email || ''
+  }));
 }
 
 async function getLeadsFromClaude(props, source) {
