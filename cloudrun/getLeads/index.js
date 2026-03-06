@@ -19,7 +19,9 @@ async function getLeadsFromApollo(props) {
   const body = {
     q_organization_name: props.name,
     per_page: 10,
-    page: 1
+    page: 1,
+    reveal_personal_emails: true,
+    reveal_phone_number: true
   };
   if (domain) body.organization_domains = [domain];
 
